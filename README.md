@@ -10,6 +10,8 @@ A Chrome/Edge browser extension that allows you to right-click on arxiv.org link
 - 📊 **Download tracking** - keeps count of saved papers
 - 🔍 **Paper title extraction** from arxiv API
 - ✅ **Visual indicators** on arxiv.org pages showing saveable links
+- 📚 **Save References** - export a paper's references to CSV (via Semantic Scholar API)
+   - Also available as JSON via the context menu option "Save References (JSON)"
 
 ## Installation
 
@@ -37,9 +39,16 @@ To distribute this extension, you would need to:
 
 1. **Visit arxiv.org** and browse papers
 2. **Right-click on any paper link** (either abstract or PDF links)
-3. **Select "Save as PDF"** from the context menu
+3. **Select "Save Paper as PDF"** from the context menu
 4. **Choose save location** when prompted
 5. **The PDF downloads** with a cleaned filename based on the paper title
+
+### Save References
+
+On any arxiv.org paper page:
+1. Right-click anywhere on the page
+2. Choose **"Save References"** (CSV) or **"Save References (JSON)"**
+3. CSV includes: Title, Year, DOI, arXiv, URL; JSON includes metadata and references array
 
 ### Supported URL Formats
 
@@ -90,6 +99,7 @@ The extension requires these permissions:
 
 - **https://arxiv.org/\***: Access arxiv.org pages
 - **https://export.arxiv.org/\***: Fetch paper metadata from arxiv API
+- **https://api.semanticscholar.org/***: Fetch references for a paper
 
 ### Architecture
 

@@ -1,9 +1,9 @@
 ﻿{
     "manifest_version":  3,
-    "name":  "Arxiv PDF Saver",
-    "version":  "1.0.0.2",
-    "version_name":  "v1.0.0.2 2025-09-20T18:45:28Z",
-    "description":  "Save arxiv.org papers as PDFs with cleaned filenames",
+    "name":  "Noesis",
+    "version":  "1.0.0.3",
+    "version_name":  "v1.0.0.3 2025-09-20T20:25:45Z",
+    "description":  "Save your papers with its titles and complete references",
     "permissions":  [
                         "contextMenus",
                         "downloads",
@@ -13,7 +13,8 @@
                     ],
     "host_permissions":  [
                              "https://arxiv.org/*",
-                             "https://export.arxiv.org/*"
+                             "https://export.arxiv.org/*",
+                             "https://api.semanticscholar.org/*"
                          ],
     "background":  {
                        "service_worker":  "background.js"
@@ -31,12 +32,12 @@
                             }
                         ],
     "action":  {
-                   "default_title":  "Arxiv PDF Saver"
+                   "default_title":  "Noesis:ScholarSaver"
                },
     "icons":  {
-                  "16":  "icons/logo.ico",
-                  "32":  "icons/logo.ico",
-                  "48":  "icons/logo.ico",
-                  "128":  "icons/logo.ico"
+                  "16":  "icons/noesis.png",
+                  "32":  "icons/noesis.png",
+                  "48":  "icons/noesis.png",
+                  "128":  "icons/noesis.png"
               }
 }

@@ -10,6 +10,18 @@ function createOrUpdateContextMenu() {
         contexts: ["page"],
         documentUrlPatterns: ["https://arxiv.org/*"]
       });
+      chrome.contextMenus.create({
+        id: "saveArxivReferencesNow",
+        title: "Save References",
+        contexts: ["page"],
+        documentUrlPatterns: ["https://arxiv.org/*"]
+      });
+      chrome.contextMenus.create({
+        id: "saveArxivReferencesJsonNow",
+        title: "Save References (JSON)",
+        contexts: ["page"],
+        documentUrlPatterns: ["https://arxiv.org/*"]
+      });
     });
   } catch (e) {
     // Some browsers may throw if no menus exist yet; log and continue
@@ -60,6 +72,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     } catch (error) {
       console.error("Error downloading PDF:", error);
       showNotification("Error", "Failed to process arxiv link");
+    }
+  } else if (info.menuItemId === "saveArxivReferencesNow") {
+    try {
+      if (!tab || !tab.url) return;
+      await saveCurrentPaperReferences(tab);
+    } catch (error) {
+      console.error("Error saving references:", error);
+      showNotification("Error", "Failed to save references");
+    }
+  } else if (info.menuItemId === "saveArxivReferencesJsonNow") {
+    try {
+      if (!tab || !tab.url) return;
+      await saveCurrentPaperReferencesJson(tab);
+    } catch (error) {
+      console.error("Error saving references JSON:", error);
+      showNotification("Error", "Failed to save references JSON");
     }
   }
 });
@@ -127,6 +155,158 @@ async function saveCurrentPaperPdf(tab) {
       showNotification("Download started", `Saving: ${filename}`);
     }
   });
+}
+
+// Save references for current arXiv paper as CSV
+async function saveCurrentPaperReferences(tab) {
+  const url = tab.url;
+  const idFromUrl = extractPaperId(url);
+  const headTitle = await getTitleFromTabOrFallback(tab.id, tab.title);
+  const parsed = parseArxivHeadTitle(headTitle);
+  const paperId = parsed?.id || idFromUrl;
+  const titlePartRaw = parsed?.title || headTitle || "references";
+  if (!paperId) {
+    showNotification("Error", "Could not determine paper ID");
+    return;
+  }
+
+  try {
+    const refs = await fetchReferencesFromSemanticScholar(paperId);
+    if (!refs || refs.length === 0) {
+      showNotification("No references", "No references found for this paper");
+      return;
+    }
+  const csv = buildReferencesCsv(refs);
+  const dataUrl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+
+  const filename = buildReferencesFilename(paperId, titlePartRaw);
+  rememberDesiredFilename(dataUrl, filename);
+  chrome.downloads.download({ url: dataUrl, saveAs: true, filename }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        console.error("References download failed:", chrome.runtime.lastError);
+        showNotification("Download failed", chrome.runtime.lastError.message);
+      } else {
+        showNotification("Download started", `Saving: ${filename}`);
+      }
+    });
+  } catch (e) {
+    console.error("Failed to fetch references:", e);
+    showNotification("Error", "Could not fetch references");
+  }
+}
+
+// Fetch references using Semantic Scholar Graph API
+async function fetchReferencesFromSemanticScholar(paperId) {
+  const bareId = String(paperId || '').replace(/v\d+$/i, '');
+  const api = `https://api.semanticscholar.org/graph/v1/paper/arXiv:${encodeURIComponent(bareId)}/references?fields=title,year,url,openAccessPdf,externalIds&limit=1000`;
+  const res = await fetch(api);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Semantic Scholar API error: ${res.status} ${res.statusText} ${text?.slice(0,200)}`);
+  }
+  const data = await res.json();
+  const items = Array.isArray(data?.data) ? data.data : [];
+  return items
+    .map(it => it?.citedPaper)
+    .filter(Boolean)
+    .map(p => ({
+      title: p.title || null,
+      year: p.year || null,
+      url: pickBestUrl(p),
+      doi: p.externalIds?.DOI || null,
+      arxiv: p.externalIds?.ArXiv || null
+    }));
+}
+
+function pickBestUrl(p) {
+  // Prefer openAccessPdf.url, then DOI URL, then S2 URL, then arXiv abs
+  if (p.openAccessPdf?.url) return p.openAccessPdf.url;
+  if (p.externalIds?.DOI) return `https://doi.org/${p.externalIds.DOI}`;
+  if (p.url) return p.url;
+  if (p.externalIds?.ArXiv) return `https://arxiv.org/abs/${p.externalIds.ArXiv}`;
+  return '';
+}
+
+function buildReferencesCsv(refs) {
+  // CSV header
+  const header = ['Title', 'Year', 'DOI', 'arXiv', 'URL'];
+  const rows = refs.map(r => [r.title || '', r.year || '', r.doi || '', r.arxiv || '', r.url || ''])
+    .map(cols => cols.map(csvEscape).join(','));
+  return header.join(',') + '\n' + rows.join('\n') + '\n';
+}
+
+function csvEscape(v) {
+  const s = String(v ?? '');
+  if (/[",\n]/.test(s)) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function buildReferencesFilename(paperId, rawTitle) {
+  let t = (rawTitle || '').replace(/:\s*/g, '. ');
+  t = t.replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim();
+  if (!t) t = paperId;
+  let name = `${paperId} ${t} - references.csv`;
+  name = name.replace(/\.+/g, '.').replace(/[\s.]+$/g, '.csv');
+  if (name.length > 220) {
+    const ext = '.csv';
+    const keep = 220 - ext.length;
+    name = name.substring(0, keep).replace(/[\s.]+$/g, '') + ext;
+  }
+  return name;
+}
+
+// Save references as JSON file
+async function saveCurrentPaperReferencesJson(tab) {
+  const url = tab.url;
+  const idFromUrl = extractPaperId(url);
+  const headTitle = await getTitleFromTabOrFallback(tab.id, tab.title);
+  const parsed = parseArxivHeadTitle(headTitle);
+  const paperId = parsed?.id || idFromUrl;
+  const titlePartRaw = parsed?.title || headTitle || "references";
+  if (!paperId) {
+    showNotification("Error", "Could not determine paper ID");
+    return;
+  }
+  try {
+    const refs = await fetchReferencesFromSemanticScholar(paperId);
+    const payload = {
+      arxivId: paperId,
+      title: (titlePartRaw || '').replace(/\s*-\s*arXiv.*$/i, '').trim(),
+      count: refs?.length || 0,
+      references: refs || []
+    };
+  const jsonText = JSON.stringify(payload, null, 2);
+  const dataUrl = 'data:application/json;charset=utf-8,' + encodeURIComponent(jsonText);
+  const filename = buildReferencesJsonFilename(paperId, titlePartRaw);
+  rememberDesiredFilename(dataUrl, filename);
+  chrome.downloads.download({ url: dataUrl, saveAs: true, filename }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        console.error("References JSON download failed:", chrome.runtime.lastError);
+        showNotification("Download failed", chrome.runtime.lastError.message);
+      } else {
+        showNotification("Download started", `Saving: ${filename}`);
+      }
+    });
+  } catch (e) {
+    console.error("Failed to fetch references (JSON):", e);
+    showNotification("Error", "Could not fetch references");
+  }
+}
+
+function buildReferencesJsonFilename(paperId, rawTitle) {
+  let t = (rawTitle || '').replace(/:\s*/g, '. ');
+  t = t.replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim();
+  if (!t) t = paperId;
+  let name = `${paperId} ${t} - references.json`;
+  name = name.replace(/\.+/g, '.').replace(/[\s.]+$/g, '.json');
+  if (name.length > 220) {
+    const ext = '.json';
+    const keep = 220 - ext.length;
+    name = name.substring(0, keep).replace(/[\s.]+$/g, '') + ext;
+  }
+  return name;
 }
 
 function parseArxivHeadTitle(headTitle) {
@@ -309,12 +489,19 @@ function cleanFilename(filename) {
 
 // Show notification to user
 function showNotification(title, message) {
-  if (chrome.notifications) {
+  try {
+    if (!chrome.notifications) return;
+    const iconUrl = (chrome.runtime && chrome.runtime.getURL)
+      ? chrome.runtime.getURL('icons/logo.ico')
+      : 'icons/logo.ico';
     chrome.notifications.create({
       type: 'basic',
-      title: title,
-      message: message
+      iconUrl,
+      title: String(title ?? ''),
+      message: String(message ?? '')
     });
+  } catch (e) {
+    console.warn('Notification failed:', e);
   }
 }
 
